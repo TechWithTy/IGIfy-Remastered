@@ -127,7 +127,7 @@ git pull
 | OS | Linux | Windows | MacOS
 | :---: | :---: | :---: | :---: |
 | -> | Kali |
-| -> | | 10 |
+| -> | Ubuntu | 10 |
 | -> | | 11 |
 
 ## Screenshots 📸
