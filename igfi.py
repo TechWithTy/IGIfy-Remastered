@@ -67,7 +67,7 @@ except (ImportError, ModuleNotFoundError):
             sleep(0.6)
             print("[+] Loading required modules...")
             sleep(0.4)
-        system("sudo pip install -r ./../requirements.txt" if sys.platform.startswith('linux') else "python -m pip install ./../requirements.txt")
+        system("sudo pip install -r ./../files/requirements.txt" if sys.platform.startswith('linux') else "python -m pip install ./../files/requirements.txt")
     elif platform.system() == 'Windows':
         if not ctypes.windll.shell32.IsUserAnAdmin():
             print("[✘] Root user not detected !")
@@ -84,7 +84,7 @@ except (ImportError, ModuleNotFoundError):
             sleep(0.6)
             print("[+] Loading required modules...")
             sleep(0.4)
-        system("pip install -r ./../requirements.txt")
+        system("pip install -r ./../files/requirements.txt")
 
 init(autoreset=True)
 RED = Fore.RED
