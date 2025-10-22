@@ -31,7 +31,7 @@ sudo su
 git clone https://github.com/new92/IGFI
 cd IGFI
 sudo pip install -r ./files/requirements.txt
-python3 ./cookies.py # this command will generate the value for the <path_to_session_file>
+python3 ./cookies.py # generates a session file (not cookies.sqlite)
 python3 ./igfi.py -u <username> -p <password> --session <path_to_session_file>
 ```
 
@@ -41,8 +41,8 @@ python3 ./igfi.py -u <username> -p <password> --session <path_to_session_file>
 git clone https://github.com/new92/IGFI
 cd IGFI
 pip install -r ./files/requirements.txt
-python3 cookies.py # this command will generate the value for the <path_to_session_file>
-python3 igfi.py -u <username> -p <password> --session <path_to_session_file>
+python cookies.py  # generates a session file (not cookies.sqlite)
+python igfi.py -u <username> -p <password> --session <path_to_session_file>
 ```
 
 ### MacOS 🍎
@@ -51,7 +51,7 @@ python3 igfi.py -u <username> -p <password> --session <path_to_session_file>
 git clone https://github.com/new92/IGFI
 cd IGFI
 python -m pip install -r ./files/requirements.txt
-python3 ./cookies.py # this command will generate the value for the <path_to_session_file>
+python3 ./cookies.py # generates a session file (not cookies.sqlite)
 python3 ./igfi.py -u <username> -p <password> --session <path_to_session_file>
 ```
 
@@ -65,7 +65,48 @@ docker build -t igfi .
 docker run -e DOCKER_CONTAINER=true -e USERNAME=<username> -e PASSWORD=<password> -e SESSION=<path_to_session_file> -p 4000:4000 -it igfi
 ```
 
-## Virtual environment setup 💻
+## Troubleshooting 🛠️
+
+### Dependency Conflicts
+
+If you encounter dependency conflicts when installing requirements, it's likely because you have other Python packages installed that require different versions of the same dependencies (e.g., pydantic, rich).
+
+**Solutions:**
+
+1. **Use the provided setup scripts** (Recommended):
+   ```bash
+   # For Linux/Mac
+   bash setup.sh
+
+   # For Windows
+   setup.bat
+   ```
+
+2. **Manual virtual environment setup**:
+   ```bash
+   # Create and activate virtual environment
+   python -m venv venv
+
+   # On Windows:
+   venv\Scripts\activate
+
+   # On Linux/Mac:
+   source venv/bin/activate
+
+   # Install dependencies
+   pip install -r files/requirements.txt
+   ```
+
+3. **Update pip**:
+   ```bash
+   pip install --upgrade pip
+   ```
+
+### Common Issues
+
+- **ModuleNotFoundError**: Make sure you're in the virtual environment or have installed all requirements
+- **Version conflicts**: Always use a virtual environment to avoid conflicts with other projects
+- **Instagram login errors**: Run `python cookies.py` first to generate session data
 
 ### Windows 🪟
 
@@ -75,8 +116,8 @@ cd IGFI
 python -m venv igfi
 .\igfi\scripts\activate
 pip install -r ./files/requirements.txt
-python3 cookies.py # this command will generate the value for the <path_to_session_file>
-python3 igfi.py -u <username> -p <password> --session <path_to_session_file>
+python cookies.py  # generates a session file (not cookies.sqlite)
+python igfi.py -u <username> -p <password> --session <path_to_session_file>
 ```
 
 ### Linux 🐧 / MacOS 🍎
@@ -87,8 +128,26 @@ cd IGFI
 python -m venv igfi
 source venv/bin/activate
 pip install -r ./files/requirements.txt
-python3 ./cookies.py # this command will generate the value for the <path_to_session_file>
+python3 ./cookies.py # generates a session file (not cookies.sqlite)
 python3 ./igfi.py -u <username> -p <password> --session <path_to_session_file>
+
+## Usage 📚
+
+- Full usage guide with examples, batching, follow-only, cleanup, and hashtag targeting is in `USAGE.md`.
+
+### Important: Passing --session on Windows
+
+- Keep the entire command on one line and quote the path.
+- `--session` must point to the session file created by `cookies.py` (or an instagrapi settings JSON) — not to `cookies.sqlite`.
+
+Examples:
+
+- CMD:
+  - `python igfi.py -u "<username_or_email>" -p "<password>" --session "C:\\Users\\<you>\\Documents\\Github\\IGFI\\ig_session.json"`
+- PowerShell:
+  - `python .\igfi.py -u '<username_or_email>' -p '<password>' --session 'C:\\Users\\<you>\\Documents\\Github\\IGFI\\ig_session.json'`
+- Git Bash:
+  - `python igfi.py -u "<username_or_email>" -p "<password>" --session "/c/Users/<you>/Documents/Github/IGFI/ig_session.json"`
 ```
 
 ##### Virtual environment deactivation 📭

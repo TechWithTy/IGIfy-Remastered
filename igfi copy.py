@@ -50,7 +50,6 @@ try:
     import instaloader
     import argparse
     import ctypes
-    import json
     from colorama import init, Fore
 except (ImportError, ModuleNotFoundError):
     print("[!] WARNING: Not all packages used in IGFI have been installed !")
@@ -199,7 +198,7 @@ def nums():
 def checkUser(username:str) -> bool:
     return username in ['', ' '] or len(username) > 30 or requests.get(f"https://www.instagram.com/{username}/", allow_redirects=False).status_code != 200
 
-def main(username: str, password: str, session: str = None):
+def main(username: str, password: str):
     banner()
     print("\n")
     with Live(centered, console=console, screen=False):
@@ -330,63 +329,6 @@ def main(username: str, password: str, session: str = None):
         print(f"{GREEN}[+] Acceptable answers >>> [yes/no]")
         sleep(1)
         ga=input(f"{YELLOW}[?] Grant the script access for extra info regarding your followers ? ").lower() in ('y', 'yes')
-        # Optional: cleanup previously queued unfollows
-        print(f"{GREEN}[+] Acceptable answers >>> [yes/no]")
-        do_cleanup = input(f"{YELLOW}[?] Cleanup previously queued unfollows now ? ").lower() in ('y','yes')
-        if do_cleanup:
-            queue_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'files/follow_queue.json')
-            try:
-                with open(queue_path, 'r', encoding='utf-8') as qf:
-                    queued = json.load(qf)
-            except Exception:
-                queued = []
-            if not queued:
-                print(f"{YELLOW}[!] No queued users to unfollow.")
-                sleep(1)
-                print(f"{GREEN}[+] Exiting...")
-                sleep(1)
-                quit(0)
-            client=instagrapi.Client()
-            try:
-                client.delay_range = (2,5)
-                client.request_timeout = 10
-            except Exception:
-                pass
-            try:
-                login = client.login(username, password)
-                if login:
-                    print(f"{GREEN}[✔] Logged in — starting cleanup...")
-                else:
-                    print(f"{RED}[✘] Login failed; cannot cleanup queued users.")
-                    quit(1)
-            except Exception as e:
-                print(f"{RED}[✘] Login failed: {e}")
-                quit(1)
-            removed = 0
-            for item in queued:
-                uid = int(item.get('uid')) if str(item.get('uid','')).isdigit() else None
-                label = item.get('label', str(uid))
-                if not uid:
-                    continue
-                try:
-                    print(f"{YELLOW}[-] Unfollowing {label} (id {uid})...")
-                    client.user_unfollow(uid)
-                    removed += 1
-                    sleep(1)
-                except Exception as e:
-                    print(f"{RED}[✘] Failed to unfollow {label}: {e}")
-                    sleep(1)
-            # Clear queue on success path
-            try:
-                os.remove(queue_path)
-            except Exception:
-                pass
-            print(f"{GREEN}[✔] Cleanup complete. Unfollowed {removed} users.")
-            sleep(1)
-            print(f"{GREEN}[+] Exiting...")
-            sleep(1)
-            quit(0)
-
         # Targeting mode
         print(f"{GREEN}[+] Acceptable answers >>> [yes/no]")
         niche = input(f"{YELLOW}[?] Use niche targeting by hashtag (collect likers) ? ").lower() in ('y', 'yes')
@@ -401,9 +343,7 @@ def main(username: str, password: str, session: str = None):
                 batch_pause = max(5, int(bp))
         except ValueError:
             pass
-        print(f"{GREEN}[+] Acceptable answers >>> [yes/no]")
-        follow_only = input(f"{YELLOW}[?] Follow-only now and queue unfollow for later? ").lower() in ('y','yes')
-        print(f"{YELLOW}[!] This will {'only follow and save' if follow_only else 'follow and then unfollow'} targets in batches of {batch_size} with {batch_pause}s pauses to attempt follow-backs. Proceed responsibly.")
+        print(f"{YELLOW}[!] This will follow and then unfollow targets in batches of {batch_size} with {batch_pause}s pauses to attempt follow-backs. Proceed responsibly.")
         proceed = input(f"{YELLOW}[?] Proceed? (yes/no) >>> ").lower() in ('y','yes')
         if not proceed:
             print(f"{RED}[+] Exiting by user choice...")
@@ -425,53 +365,9 @@ def main(username: str, password: str, session: str = None):
             client.request_timeout = 10
         except Exception:
             pass
-        # Try session-based login first if a session file is provided
-        session_login_done = False
-        if session and os.path.exists(session):
-            sessionid = None
-            # Try to load as Instaloader session and extract sessionid
-            try:
-                loader = instaloader.Instaloader()
-                try:
-                    loader.load_session_from_file(username, session)
-                except Exception:
-                    loader.load_session_from_file()
-                for c in list(loader.context._session.cookies):
-                    if getattr(c, 'name', '') == 'sessionid':
-                        sessionid = getattr(c, 'value', None)
-                        break
-            except Exception:
-                pass
-            # Try JSON session file (search for 'sessionid')
-            if not sessionid and session.lower().endswith('.json'):
-                try:
-                    with open(session, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                    stack = [data]
-                    while stack and not sessionid:
-                        cur = stack.pop()
-                        if isinstance(cur, dict):
-                            for k, v in cur.items():
-                                if k == 'sessionid' and isinstance(v, str):
-                                    sessionid = v
-                                    break
-                                stack.append(v)
-                        elif isinstance(cur, list):
-                            stack.extend(cur)
-                except Exception:
-                    pass
-            # Attempt login by sessionid if found
-            if sessionid:
-                try:
-                    print(f"{YELLOW}[+] Attempting login by session file...")
-                    if client.login_by_sessionid(sessionid):
-                        session_login_done = True
-                        print(f"{GREEN}[✔] Login successful via session file!")
-                except Exception as e:
-                    print(f"{YELLOW}[!] Session login failed: {e}")
-        # Simple login flow (fallback to username/password)
+        # Simple login flow (no external sessions)
         try:
-            login = True if session_login_done else client.login(username, password)
+            login = client.login(username, password)
             if login:
                 print(f"{GREEN}[✔] Login successful with instagrapi!")
                 # Persist settings for stable device identity
@@ -585,8 +481,6 @@ def main(username: str, password: str, session: str = None):
         else:
             # use built-in celebrity targets
             targets = [(int(users[name]), name) for name in NAMES]
-        # Prepare queue path if follow-only
-        queue_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'files/follow_queue.json')
 
         # Get current followers for comparison (only if extra info allowed)
         FOLLOWERS = None
@@ -618,41 +512,20 @@ def main(username: str, password: str, session: str = None):
                             print(f"{RED}[✘] Follow failed for {label} (id {uid}): {e}")
                             sleep(1)
                         sleep(0.5)
-                    if follow_only:
-                        # Append batch to queue file for later cleanup
+                    print(f"{YELLOW}[⏸] Pausing {batch_pause}s before unfollowing...")
+                    sleep(batch_pause)
+                    print(f"{YELLOW}[↩] Unfollowing current batch...")
+                    for uid, label in batch:
                         try:
-                            try:
-                                with open(queue_path, 'r', encoding='utf-8') as qf:
-                                    queued = json.load(qf)
-                            except Exception:
-                                queued = []
-                            # Deduplicate by uid
-                            existing = {int(item.get('uid')) for item in queued if str(item.get('uid','')).isdigit()}
-                            for uid2, label2 in batch:
-                                if uid2 not in existing:
-                                    queued.append({"uid": int(uid2), "label": label2})
-                            with open(queue_path, 'w', encoding='utf-8') as qf:
-                                json.dump(queued, qf)
-                            print(f"{GREEN}[✔] Queued {len(batch)} users for later unfollow. Queue file: {queue_path}")
+                            print(f"{YELLOW}[-] Unfollowing {label} (id {uid})...")
+                            client.user_unfollow(uid)
+                            sleep(1.5)
+                            x += 1
+                            print(f"{GREEN}[✔] Ok")
                         except Exception as e:
-                            print(f"{YELLOW}[!] Could not update follow queue: {e}")
-                        print(f"{YELLOW}[⏸] Pausing {batch_pause}s before next batch...")
-                        sleep(batch_pause)
-                    else:
-                        print(f"{YELLOW}[⏸] Pausing {batch_pause}s before unfollowing...")
-                        sleep(batch_pause)
-                        print(f"{YELLOW}[↩] Unfollowing current batch...")
-                        for uid, label in batch:
-                            try:
-                                print(f"{YELLOW}[-] Unfollowing {label} (id {uid})...")
-                                client.user_unfollow(uid)
-                                sleep(1.5)
-                                x += 1
-                                print(f"{GREEN}[✔] Ok")
-                            except Exception as e:
-                                print(f"{RED}[✘] Unfollow failed for {label} (id {uid}): {e}")
-                                sleep(1)
-                            sleep(1.0)
+                            print(f"{RED}[✘] Unfollow failed for {label} (id {uid}): {e}")
+                            sleep(1)
+                        sleep(1.0)
             except KeyboardInterrupt:
                 res = f - x
                 if res != 0:
@@ -821,14 +694,13 @@ def main(username: str, password: str, session: str = None):
         sleep(1)
 
 if __name__ == '__main__':
-    # CLI: username/password and optional --session (Instaloader or JSON file)
+    # Minimal CLI: username/password only; ignore unknown args (e.g., --session)
     parser = argparse.ArgumentParser(description='IGFI - increase Instagram followers')
     parser.add_argument('-u', '--username', help='Your Instagram username or email')
     parser.add_argument('-p', '--password', help='Your Instagram password')
-    parser.add_argument('--session', help='Path to session file (created via cookies.py or an instagrapi settings JSON)')
     args, unknown = parser.parse_known_args()
     if not args.username:
         args.username = input('Username or email: ').strip()
     if not args.password:
         args.password = input('Password: ').strip()
-    main(username=args.username.strip().lower(), password=args.password.strip(), session=(args.session.strip() if args.session else None))
+    main(username=args.username.strip().lower(), password=args.password.strip())
