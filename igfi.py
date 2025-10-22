@@ -52,6 +52,17 @@ try:
     import ctypes
     import json
     from colorama import init, Fore
+    # Optional utilities for targets/workflows
+    try:
+        from utilities.client import create_client
+        from utilities.targets import build_targets_from_hashtags
+    except Exception:
+        create_client = None
+        build_targets_from_hashtags = None
+    try:
+        from modules._exceptions import run_with_handling
+    except Exception:
+        run_with_handling = None
 except (ImportError, ModuleNotFoundError):
     print("[!] WARNING: Not all packages used in IGFI have been installed !")
     sleep(1)
@@ -195,11 +206,19 @@ def nums():
     console.print("[bold yellow][3] Clear log[/]")
     console.print("[bold yellow][4] Uninstall IGFI[/]")
     console.print("[bold yellow][5] Exit[/]")
+    console.print("[bold yellow][6] Collect targets (hashtags)[/]")
         
 def checkUser(username:str) -> bool:
     return username in ['', ' '] or len(username) > 30 or requests.get(f"https://www.instagram.com/{username}/", allow_redirects=False).status_code != 200
 
-def main(username: str, password: str, session: str = None):
+def main(
+    username: str,
+    password: str,
+    session: str = None,
+    daily_cap: int = 50,
+    dry_run_flag: bool | None = None,
+    follow_only_flag: bool | None = None,
+):
     banner()
     print("\n")
     with Live(centered, console=console, screen=False):
@@ -212,19 +231,65 @@ def main(username: str, password: str, session: str = None):
     print("\n")
     nums()
     print("\n")
-    num=int(input(f"{YELLOW}[>] Please enter a number (from the above ones) >>> "))
-    valErr = num in [1,2,3,4,5]
-    while not valErr:
+    # Robust menu input handling: keep prompting until a valid number [1-6]
+    while True:
+        raw = input(f"{YELLOW}[>] Please enter a number (from the above ones) >>> ").strip()
         try:
-            nums()
-            sleep(1)
-            num=int(input(f"{YELLOW}[>] Please enter again a number (from the above ones) >>> "))
-            valErr = num in [1,2,3,4,5]
-        except ValueError:
+            num = int(raw)
+        except (ValueError, TypeError):
             print(f"{RED}[✘] Invalid number")
             sleep(0.5)
-            print(f"{GREEN}[+] Acceptable numbers >>> [1-5]")
+            print(f"{GREEN}[+] Acceptable numbers >>> [1-6]")
             sleep(1)
+            continue
+        if num in [1,2,3,4,5,6]:
+            break
+        print(f"{RED}[✘] Invalid number")
+        sleep(0.5)
+        print(f"{GREEN}[+] Acceptable numbers >>> [1-6]")
+        sleep(1)
+    if num == 6:
+        clear()
+        if not create_client or not build_targets_from_hashtags:
+            print(f"{RED}[✘] Utilities not available. Please ensure 'utilities' package exists.")
+            sleep(1)
+            quit(1)
+        try:
+            tags_raw = input(f"{YELLOW}[?] Enter hashtags separated by space (without #) >>> ").strip()
+            hashtags = [t.lstrip('#') for t in tags_raw.split() if t.strip()]
+            if not hashtags:
+                print(f"{RED}[✘] No hashtags provided. Exiting.")
+                quit(1)
+            mcount = input(f"{YELLOW}[?] Number of medias per hashtag (default 20) >>> ").strip()
+            mcount = int(mcount) if mcount else 20
+            ucount = input(f"{YELLOW}[?] Max users to collect (default 100) >>> ").strip()
+            ucount = int(ucount) if ucount else 100
+            source = 'top'  # default per request
+            cl = create_client(username=username, password=password)
+            mapping = build_targets_from_hashtags(
+                cl=cl,
+                hashtags=hashtags,
+                media_source=source,
+                media_count=mcount,
+                max_users=ucount,
+                exclude_self=True,
+                include_likers=True,
+                verbose=True,
+            )
+            outp = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'files/targets.json')
+            with open(outp, 'w', encoding='utf-8') as f:
+                json.dump(mapping, f, ensure_ascii=False, indent=2)
+            print(f"{GREEN}[✔] Saved {len(mapping)} targets to {outp}")
+            if len(mapping) == 0:
+                print(f"{YELLOW}[!] No targets collected. Reasons could include:")
+                print(f"   - Hashtag endpoints temporarily limited for your session")
+                print(f"   - The chosen tags have low or restricted content")
+                print(f"   - Rate limits; try again later or fewer media_count")
+                print(f"   - Try alternative tags (e.g., realestate, real_estate, realtor)")
+            print(f"{GREEN}[+] You can now run Increase followers to use these targets.")
+        except Exception as e:
+            print(f"{RED}[✘] Failed to collect targets: {e}")
+        quit(0)
     if num == 1:
         clear()
         sleep(0.9)
@@ -235,7 +300,21 @@ def main(username: str, password: str, session: str = None):
         print(f"{GREEN}[+] Acceptable answers >>> [yes/no]")
         sleep(1)
         check=input(f"{YELLOW}[?] Display the usernames of the followers added ? ").lower() in ('y', 'yes')
-        users = {
+        # Prefer pre-collected targets if present
+        users = {}
+        targets_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'files/targets.json')
+        if os.path.exists(targets_path):
+            try:
+                with open(targets_path, 'r', encoding='utf-8') as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict) and loaded:
+                    users = loaded
+                    print(f"{GREEN}[✔] Loaded {len(users)} pre-collected targets from files/targets.json")
+            except Exception:
+                users = {}
+        # Fallback to built-in celebrity list if no targets present
+        if not users:
+            users = {
             'Cristiano Ronaldo' : '173560420',
             'Cardi B' : '1436859892',
             'Kim Kardashian': '18428658',
@@ -330,6 +409,12 @@ def main(username: str, password: str, session: str = None):
         print(f"{GREEN}[+] Acceptable answers >>> [yes/no]")
         sleep(1)
         ga=input(f"{YELLOW}[?] Grant the script access for extra info regarding your followers ? ").lower() in ('y', 'yes')
+        # Dry run option (CLI flag overrides prompt)
+        if dry_run_flag is not None:
+            dry_run = bool(dry_run_flag)
+        else:
+            print(f"{GREEN}[+] Acceptable answers >>> [yes/no]")
+            dry_run = input(f"{YELLOW}[?] Dry-run (preview targets; no actions) ? ").lower() in ('y','yes')
         # Optional: cleanup previously queued unfollows
         print(f"{GREEN}[+] Acceptable answers >>> [yes/no]")
         do_cleanup = input(f"{YELLOW}[?] Cleanup previously queued unfollows now ? ").lower() in ('y','yes')
@@ -387,9 +472,11 @@ def main(username: str, password: str, session: str = None):
             sleep(1)
             quit(0)
 
-        # Targeting mode
+        # Targeting mode (only if no pre-collected targets loaded)
         print(f"{GREEN}[+] Acceptable answers >>> [yes/no]")
-        niche = input(f"{YELLOW}[?] Use niche targeting by hashtag (collect likers) ? ").lower() in ('y', 'yes')
+        niche = False
+        if not users:
+            niche = input(f"{YELLOW}[?] Use niche targeting by hashtag (collect likers) ? ").lower() in ('y', 'yes')
         batch_size = 10
         batch_pause = 60
         try:
@@ -402,7 +489,11 @@ def main(username: str, password: str, session: str = None):
         except ValueError:
             pass
         print(f"{GREEN}[+] Acceptable answers >>> [yes/no]")
-        follow_only = input(f"{YELLOW}[?] Follow-only now and queue unfollow for later? ").lower() in ('y','yes')
+        if follow_only_flag is not None:
+            follow_only = bool(follow_only_flag)
+            print(f"{YELLOW}[i] Follow-only {'enabled' if follow_only else 'disabled'} via CLI flag.")
+        else:
+            follow_only = input(f"{YELLOW}[?] Follow-only now and queue unfollow for later? ").lower() in ('y','yes')
         print(f"{YELLOW}[!] This will {'only follow and save' if follow_only else 'follow and then unfollow'} targets in batches of {batch_size} with {batch_pause}s pauses to attempt follow-backs. Proceed responsibly.")
         proceed = input(f"{YELLOW}[?] Proceed? (yes/no) >>> ").lower() in ('y','yes')
         if not proceed:
@@ -549,7 +640,9 @@ def main(username: str, password: str, session: str = None):
 
         # Build target list
         targets = []  # list of (uid:int, label:str)
-        if niche:
+        if users:
+            targets = [(int(uid), name) for name, uid in users.items()]
+        elif niche:
             try:
                 tag = input(f"{YELLOW}[?] Enter hashtag (without #) >>> ").strip().lstrip('#')
                 mcount = input(f"{YELLOW}[?] Number of recent posts to scan (default 5) >>> ").strip()
@@ -560,7 +653,7 @@ def main(username: str, password: str, session: str = None):
                 mcount, ucount = 5, 50
             collected = {}
             try:
-                medias = client.hashtag_medias_recent(tag, amount=mcount)
+                medias = client.hashtag_medias_top(tag, amount=mcount)
             except Exception:
                 medias = []
             for media in medias:
@@ -588,6 +681,14 @@ def main(username: str, password: str, session: str = None):
         # Prepare queue path if follow-only
         queue_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'files/follow_queue.json')
 
+        # Dry-run preview
+        if dry_run:
+            print(f"{YELLOW}[i] Dry-run: {len(targets)} targets ready. Showing up to first 20:")
+            for i, (uid, label) in enumerate(targets[:20]):
+                print(f"  {i+1:02d}. {label} (id {uid})")
+            print(f"{GREEN}[+] Exiting (dry-run). No actions performed.")
+            quit(0)
+
         # Get current followers for comparison (only if extra info allowed)
         FOLLOWERS = None
         if ga and profile is not None and check:
@@ -601,23 +702,56 @@ def main(username: str, password: str, session: str = None):
         f = 0
         x = 0
 
+        daily_cap = int(daily_cap) if daily_cap else 50
         for i in range(10000):
             try:
                 # Follow in batches
                 for start in range(0, len(targets), batch_size):
                     batch = targets[start:start+batch_size]
                     print(f"{YELLOW}[+] Processing follow batch {start//batch_size + 1} ({len(batch)} users)...")
+                    reached_cap = False
                     for uid, label in batch:
                         try:
                             print(f"{YELLOW}[+] Following {label} (id {uid})...")
-                            client.user_follow(uid)
+                            if run_with_handling:
+                                res = run_with_handling(client.user_follow, uid)
+                                if not res.get('ok'):
+                                    outcome = res['outcome']
+                                    if outcome.action in ('wait', 'cooldown', 'retry'):
+                                        ws = max(1, int(outcome.wait_seconds or 5))
+                                        print(f"{YELLOW}[!] Backing off {ws}s ({outcome.action})…")
+                                        sleep(ws)
+                                        # one retry
+                                        res2 = run_with_handling(client.user_follow, uid)
+                                        if not res2.get('ok'):
+                                            print(f"{RED}[✘] Follow failed for {label}: {outcome.message}")
+                                            sleep(1)
+                                            continue
+                                    elif outcome.action in ('retry_later', 'skip'):
+                                        print(f"{YELLOW}[!] Skipping {label}: {outcome.message}")
+                                        continue
+                                    elif outcome.action in ('stop', 'relogin'):
+                                        print(f"{RED}[✘] Stopping: {outcome.message}")
+                                        raise KeyboardInterrupt
+                                    else:
+                                        print(f"{RED}[✘] Follow failed for {label}: {outcome.message}")
+                                        continue
+                            else:
+                                client.user_follow(uid)
                             sleep(2)
                             f += 1
                             print(f"{GREEN}[✔] Ok")
+                            if f >= daily_cap:
+                                reached_cap = True
+                                print(f"{YELLOW}[!] Daily follow cap reached ({daily_cap}).")
+                                break
                         except Exception as e:
                             print(f"{RED}[✘] Follow failed for {label} (id {uid}): {e}")
                             sleep(1)
                         sleep(0.5)
+                    if reached_cap and follow_only:
+                        # Queue batch if follow-only, then stop after this batch
+                        pass  # queue handled below
                     if follow_only:
                         # Append batch to queue file for later cleanup
                         try:
@@ -638,6 +772,8 @@ def main(username: str, password: str, session: str = None):
                             print(f"{YELLOW}[!] Could not update follow queue: {e}")
                         print(f"{YELLOW}[⏸] Pausing {batch_pause}s before next batch...")
                         sleep(batch_pause)
+                        if reached_cap:
+                            raise KeyboardInterrupt
                     else:
                         print(f"{YELLOW}[⏸] Pausing {batch_pause}s before unfollowing...")
                         sleep(batch_pause)
@@ -645,7 +781,31 @@ def main(username: str, password: str, session: str = None):
                         for uid, label in batch:
                             try:
                                 print(f"{YELLOW}[-] Unfollowing {label} (id {uid})...")
-                                client.user_unfollow(uid)
+                                if run_with_handling:
+                                    res = run_with_handling(client.user_unfollow, uid)
+                                    if not res.get('ok'):
+                                        outcome = res['outcome']
+                                        if outcome.action in ('wait', 'cooldown', 'retry'):
+                                            ws = max(1, int(outcome.wait_seconds or 5))
+                                            print(f"{YELLOW}[!] Backing off {ws}s ({outcome.action})…")
+                                            sleep(ws)
+                                            # one retry
+                                            res2 = run_with_handling(client.user_unfollow, uid)
+                                            if not res2.get('ok'):
+                                                print(f"{RED}[✘] Unfollow failed for {label}: {outcome.message}")
+                                                sleep(1)
+                                                continue
+                                        elif outcome.action in ('retry_later', 'skip'):
+                                            print(f"{YELLOW}[!] Skipping unfollow {label}: {outcome.message}")
+                                            continue
+                                        elif outcome.action in ('stop', 'relogin'):
+                                            print(f"{RED}[✘] Stopping: {outcome.message}")
+                                            raise KeyboardInterrupt
+                                        else:
+                                            print(f"{RED}[✘] Unfollow failed for {label}: {outcome.message}")
+                                            continue
+                                else:
+                                    client.user_unfollow(uid)
                                 sleep(1.5)
                                 x += 1
                                 print(f"{GREEN}[✔] Ok")
@@ -653,6 +813,8 @@ def main(username: str, password: str, session: str = None):
                                 print(f"{RED}[✘] Unfollow failed for {label} (id {uid}): {e}")
                                 sleep(1)
                             sleep(1.0)
+                        if reached_cap:
+                            raise KeyboardInterrupt
             except KeyboardInterrupt:
                 res = f - x
                 if res != 0:
@@ -821,14 +983,68 @@ def main(username: str, password: str, session: str = None):
         sleep(1)
 
 if __name__ == '__main__':
-    # CLI: username/password and optional --session (Instaloader or JSON file)
+    # CLI: username/password and optional flags, with .env support
     parser = argparse.ArgumentParser(description='IGFI - increase Instagram followers')
     parser.add_argument('-u', '--username', help='Your Instagram username or email')
     parser.add_argument('-p', '--password', help='Your Instagram password')
     parser.add_argument('--session', help='Path to session file (created via cookies.py or an instagrapi settings JSON)')
+    parser.add_argument('--daily-cap', type=int, default=50, help='Max follows per run/day (default 50)')
+    parser.add_argument('--dry-run', action='store_true', help='Preview targets and exit (no actions)')
+    parser.add_argument('--follow-only', action='store_true', help='Follow-only now and queue unfollow for later')
     args, unknown = parser.parse_known_args()
+
+    # .env loader (minimal), supports IGFI_USERNAME, IGFI_PASSWORD, IGFI_SESSION, IGFI_DAILY_CAP, IGFI_DRY_RUN, IGFI_FOLLOW_ONLY
+    def load_env_file(path: str):
+        data = {}
+        try:
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith('#'):
+                            continue
+                        if '=' in line:
+                            k, v = line.split('=', 1)
+                            data[k.strip()] = v.strip().strip('"').strip("'")
+        except Exception:
+            pass
+        return data
+
+    env = os.environ.copy()
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+    file_env = load_env_file(env_path)
+
+    def env_or_file(key, default=None):
+        return env.get(key, file_env.get(key, default))
+
+    # Fill from .env if args missing
+    if not args.username:
+        args.username = env_or_file('IGFI_USERNAME')
+    if not args.password:
+        args.password = env_or_file('IGFI_PASSWORD')
+    if not args.session:
+        args.session = env_or_file('IGFI_SESSION')
+    if (not args.daily_cap) or args.daily_cap == 50:
+        cap = env_or_file('IGFI_DAILY_CAP')
+        if cap and str(cap).isdigit():
+            args.daily_cap = int(cap)
+    # Flags from env
+    dry_env = env_or_file('IGFI_DRY_RUN')
+    follow_env = env_or_file('IGFI_FOLLOW_ONLY')
+    dry_flag = args.dry_run or (str(dry_env).lower() in ('1','true','yes'))
+    follow_only_flag = args.follow_only or (str(follow_env).lower() in ('1','true','yes'))
+
+    # Prompt if still missing
     if not args.username:
         args.username = input('Username or email: ').strip()
     if not args.password:
         args.password = input('Password: ').strip()
-    main(username=args.username.strip().lower(), password=args.password.strip(), session=(args.session.strip() if args.session else None))
+
+    main(
+        username=args.username.strip().lower(),
+        password=args.password.strip(),
+        session=(args.session.strip() if args.session else None),
+        daily_cap=args.daily_cap,
+        dry_run_flag=dry_flag,
+        follow_only_flag=follow_only_flag,
+    )

@@ -1,0 +1,6 @@
+[submodule "workers/tools/instatools"]
+	path = workers/tools/instatools
+	url = https://github.com/Deal-Scale/instatools
+[submodule "workers/tools/iam"]
+	path = workers/tools/iam
+	url = https://github.com/Deal-Scale/iam.git
